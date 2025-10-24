@@ -53,6 +53,7 @@ class ImguiApp:
         self._title = title
         self._width = width
         self._height = height
+        self._font_scale = 0
 
     def __dispose__(self):
         self._imgui_teardown()
@@ -96,7 +97,7 @@ class ImguiApp:
             gl.glClear(int(gl.GL_COLOR_BUFFER_BIT) | int(gl.GL_DEPTH_BUFFER_BIT))
             self._renderer.new_frame()
             imgui.new_frame()
-            imgui.push_font(self._font, 0)  # or push_font(font, font.legacy_size)
+            imgui.push_font(self._font, self._font_scale)
 
             self.mainloop()
 

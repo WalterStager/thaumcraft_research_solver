@@ -1,4 +1,5 @@
 import json
+import math
 import numpy as np
 import myimgui as mig
 from slimgui import imgui as ig
@@ -20,22 +21,18 @@ ul  -34,  22    -1,  1
 pos = (r*-34, q*-34 + r*-22)
 """
 
-# print({my_grid.coord_of(k): v for k, v in placed_aspects.items()})
-
 class TRSApp(mig.ImguiApp):
     def setup(self):
+        self.global_scale_factor = 1
+        self.calculate_scaling()
+
         self.grid_size = 3
         self.grid_struct = HexGrid(self.grid_size)
         self.aspect_rels = AspectRelations()
-        self.placed_aspects : dict[int, str] = {
-            # self.grid_struct.id_of((0, 3)): "permutatio",
-            # self.grid_struct.id_of((0, -3)): "praecantatio",
-            # self.grid_struct.id_of((-3, 2)): "motus",
-            # self.grid_struct.id_of((3, -2)): "auram"
-        }
+        self.placed_aspects : dict[int, str] = {}
         
         self.hex_texture = mig.load_texture("hex.png")
-        self.button_size = (40, 40)
+
         with open('aspects.json') as aspects_file:
             self.aspects : dict[str, None | list[str]] = json.loads(aspects_file.read())
             assert self.aspects != None
@@ -77,7 +74,7 @@ class TRSApp(mig.ImguiApp):
         count = 0
         for node_id in self.grid_struct.all_nodes():
             coords = self.grid_struct.coord_of(node_id)
-            pos = (coords[1] * -34, (coords[0] * -44) + (coords[1] * -22), node_id)
+            pos = (coords[1] * self.horz_spacing, (coords[0] * self.vert_spacing1) + (coords[1] * self.vert_spacing2), node_id)
             button_coords.append(pos)
         if (len(button_coords) != 0):
             xs, ys, _ = zip(*button_coords)
@@ -143,31 +140,51 @@ class TRSApp(mig.ImguiApp):
                     algo_placed[node] = aspect_name
         self.placed_aspects.update(algo_placed)
 
+    def calculate_scaling(self):
+        self.global_scale_factor = max(0.1, self.global_scale_factor)
+        self.global_scale_factor = min(5, self.global_scale_factor)
+        self._font_scale = 25 * self.global_scale_factor
+        button_scale_size = int(80 * self.global_scale_factor)
+        margin = button_scale_size // 13
+        self.button_size = (button_scale_size, button_scale_size)
+        self.horz_spacing = -1 * (((3 * button_scale_size) // 4) + margin)
+        self.vert_spacing1 = -1 * (button_scale_size + margin)
+        self.vert_spacing2 = -1 * ((button_scale_size + margin) // 2)
+
     def mainloop(self):
         ig.set_next_window_pos((0, 0), ig.Cond.ONCE)
         ig.set_next_window_size(glfw.get_window_size(self._glfw_window), ig.Cond.ALWAYS)
-        ig.begin("Main window", flags = ig.WindowFlags.NO_MOVE | ig.WindowFlags.NO_RESIZE | ig.WindowFlags.NO_TITLE_BAR)
-        
-        if (ig.button("+##grid_size")):
-            self.grid_size += 1
-            self.reset()
-        ig.same_line()
-        if (ig.button("-##grid_size")):
-            self.grid_size = max(1, self.grid_size - 1)
-            self.reset()
-        ig.same_line()
-        ig.text(f"{self.grid_size} grid_size")
-        ig.same_line()
+        ig.begin("Main window", flags = ig.WindowFlags.NO_MOVE | ig.WindowFlags.NO_RESIZE | ig.WindowFlags.NO_COLLAPSE | ig.WindowFlags.MENU_BAR | ig.WindowFlags.NO_TITLE_BAR | ig.WindowFlags.ALWAYS_AUTO_RESIZE)
+
+        if (ig.begin_menu_bar()):
+            if (ig.begin_menu("Options")):
+                ig.set_next_item_width(ig.calc_text_size("UI Scale")[0] + 80 * self.global_scale_factor)
+                res, temp_gsf = ig.input_float("UI Scale", self.global_scale_factor, 0.1, 1, flags = ig.InputTextFlags.NONE)
+                if (res):
+                    self.global_scale_factor = temp_gsf
+                    self.calculate_scaling()
+
+                ig.end_menu()
+            ig.end_menu_bar()
+
         if (ig.button("reset")):
             self.reset()
         ig.same_line()
         if (ig.button("solve")):
             self.solve()
-
-        self.build_grid()
         ig.same_line()
+        ig.set_next_item_width(ig.calc_text_size("grid size")[0] + 80 * self.global_scale_factor)
+        res, temp_size = ig.input_int("grid size", self.grid_size, 1, 1)
+        if (res):
+            self.grid_size = temp_size
+            self.grid_size = max(2, self.grid_size)
+            self.grid_size = min(10, self.grid_size)
+            self.reset()
+
         self.build_aspects()
+        ig.same_line()
+        self.build_grid()
         ig.end()
 
-app = TRSApp(title = 'Thaumcraft Research Solver')
+app = TRSApp(title = 'Thaumcraft Research Solver', width = 1500, height = 1100)
 app.run()
