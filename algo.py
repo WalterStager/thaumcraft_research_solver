@@ -1,91 +1,5 @@
-import json
-from heapq import heappop, heappush
-from collections import deque
-from collections.abc import Iterable
-
-class AspectRelations:
-    """
-    Adjacency list graph where each node has some cost
-    """
-    def __init__(self):
-        self.aspect_costs : dict[str, int] = {}
-        self.aspect_relations : dict[str, set[str]] = {}
-        self.aspect_parents : dict[str, set[str]] = {}
-        self.aspect_children : dict[str, set[str]] = {}
-        self._recipes: dict[str, list[str]] = {}
-        self._min_costs: dict[str, dict[str, int]] = {}
-        self._build()
-        
-    def _build(self):
-        with open('aspects.json') as aspects_file:
-            data = json.load(aspects_file)
-        for aspect, components in data.items():
-            normalized = list(components or [])
-            self.aspect_relations.setdefault(aspect, set())
-            self.aspect_children.setdefault(aspect, set())
-            self._recipes[aspect] = normalized
-            for component in normalized:
-                self.aspect_relations.setdefault(component, set()).add(aspect)
-                self.aspect_parents.setdefault(component, set()).add(aspect)
-                self.aspect_relations[aspect].add(component)
-                self.aspect_children[aspect].add(component)
-                self._recipes.setdefault(component, [])
-        memo: dict[str, int] = {}
-        for aspect in self.aspect_relations:
-            self.aspect_costs[aspect] = self._resolve_cost(aspect, memo, set())
-        self._precompute_min_costs()
-
-    def _resolve_cost(self, aspect: str, memo: dict[str, int], visiting: set[str]) -> int:
-        if aspect in memo:
-            return memo[aspect]
-        if aspect in visiting:
-            raise ValueError(f'Cycle detected while computing cost for {aspect}')
-        visiting.add(aspect)
-        components = self._recipes.get(aspect, [])
-        if not components:
-            memo[aspect] = 1
-        else:
-            memo[aspect] = 1 + sum(self._resolve_cost(comp, memo, visiting) for comp in components)
-        visiting.remove(aspect)
-        return memo[aspect]
-
-    def _precompute_min_costs(self):
-        self._min_costs = {}
-        for aspect in self.aspect_relations:
-            self._min_costs[aspect] = self._dijkstra(aspect)
-
-    def _dijkstra(self, start: str) -> dict[str, int]:
-        distances: dict[str, int] = {start: 0}
-        frontier: list[tuple[int, str]] = [(0, start)]
-        while frontier:
-            cost, node = heappop(frontier)
-            if cost > distances[node]:
-                continue
-            for neighbor in self.aspect_relations.get(node, ()):
-                step_cost = self.transition_cost(node, neighbor)
-                new_cost = cost + step_cost
-                if new_cost < distances.get(neighbor, float('inf')):
-                    distances[neighbor] = new_cost
-                    heappush(frontier, (new_cost, neighbor))
-        return distances
-
-    def transition_cost(self, source: str, target: str) -> int:
-        return self.aspect_costs.get(target, 1)
-
-    def min_cost(self, source: str, target: str) -> int:
-        return self._min_costs.get(source, {}).get(target, float('inf'))
-
-    def candidate_moves(self, aspect: str):
-        return self.neighbors(aspect)
-
-    def neighbors(self, aspect: str):
-        return list(self.aspect_relations.get(aspect, []))
-
-    def node_count(self):
-        return len(self.aspect_relations)
-
-    def all_nodes(self):
-        return list(self.aspect_relations.keys())
+from pulp import *
+from ortools.sat.python import cp_model
 
 class HexGrid:
     """
@@ -102,6 +16,7 @@ class HexGrid:
         self.radius = max(0, radius - 1)
         self.id_to_coord : dict[int, (int,int)] = {}
         self.coord_to_id : dict[(int,int), int] = {}
+        self.edge_list : set[(int,int)] = set()
         self.adj : dict[int, list[int]] = {}
         self._build()
 
@@ -121,18 +36,15 @@ class HexGrid:
 
         # axial neighbor directions
         dirs = [(1, 0), (1, -1), (0, -1), (-1, 0), (-1, 1), (0, 1)]
-        for i, coord in self.id_to_coord.items():
+        for id, coord in self.id_to_coord.items():
             q, r = coord
             for dq, dr in dirs:
                 ncoord = (q + dq, r + dr)
                 if ncoord in self.coord_to_id:
-                    self.adj[i].append(self.coord_to_id[ncoord])
-
-    def _reconstruct_path(self, parents: dict[int, int | None], node: int) -> list[int]:
-        path = [node]
-        while parents[path[-1]] is not None:
-            path.append(parents[path[-1]])
-        return list(reversed(path))
+                    nid = self.coord_to_id[ncoord]
+                    self.adj[id].append(nid)
+                    if (not (nid, id) in self.edge_list):
+                        self.edge_list.add((id, nid))
 
     def neighbors(self, node_id: int):
         return list(self.adj.get(node_id, []))
@@ -143,146 +55,323 @@ class HexGrid:
     def all_nodes(self):
         return list(self.adj.keys())
 
-    def coord_of(self, node_id: int):
-        return self.id_to_coord.get(node_id)
+class CombinedGrid:
+    def __init__(self, radius: int):
+        self.radius = max(0, radius - 1)
+        # graph lookups that use id <=> (q, r, a)
+        self.id_to_coord : dict[int, (int,int,int)] = {}
+        self.coord_to_id : dict[(int,int,int), int] = {}
+        self.edge_list : set[(int,int)] = set()
+        self.adj : dict[int, set[int]] = {}
 
-    def id_of(self, coord):
-        return self.coord_to_id.get(coord)
-    
-    def remove_id(self, node_id: int):
-        coord = self.id_to_coord.pop(node_id, None)
-        if coord is not None:
-            self.coord_to_id.pop(coord, None)
-        self.adj.pop(node_id, None)
-        for neighbors in self.adj.values():
-            if node_id in neighbors:
-                neighbors.remove(node_id)
+        # aspect specific lookups that use aid/'a'/aspect id <=> str
+        self.aspect_to_aid : dict[str, int] = {}
+        self.aid_to_aspect : dict[int, str] = {}
+        self.aspect_adj : dict[int, set[int]] = {}
+        self._build()
+
+    def _build(self):
+        with open('aspects.json') as aspects_file:
+            data : dict = json.load(aspects_file)
+
+        # let all aspects be assigned ids
+        for aid, (aspect, components) in enumerate(data.items()):
+            self.aspect_to_aid[aspect] = aid
+            self.aid_to_aspect[aid] = aspect
         
-    def shortest_path(self, start_id: int, goal_ids: Iterable[int]) -> list[int]:
-        goals = set(goal_ids)
-        if not goals:
-            return []
-        if start_id not in self.adj or any(goal not in self.adj for goal in goals):
-            raise KeyError('Unknown node provided to HexGrid.shortest_path.')
-        if start_id in goals:
-            return [start_id]
-        frontier = deque([start_id])
-        parents: dict[int, int | None] = {start_id: None}
-        while frontier:
-            current = frontier.popleft()
-            for neighbor in self.adj.get(current, ()):
-                if neighbor in parents:
-                    continue
-                parents[neighbor] = current
-                if neighbor in goals:
-                    return self._reconstruct_path(parents, neighbor)
-                frontier.append(neighbor)
-        return []
+        # construct aspect adjacency lists
+        for aspect, components in data.items():
+            a1 = self.aspect_to_aid[aspect]
+            components = list(components or [])
+            for component in components:
+                a2 = self.aspect_to_aid[component]
+                self.aspect_adj.setdefault(a1, set()).add(a2)
+                self.aspect_adj.setdefault(a2, set()).add(a1)
 
-    def path_with_exact_length(
-        self,
-        start_id: int,
-        goal_id: int,
-        length: int,
-        blocked: Iterable[int] | None = None,
-    ) -> list[int]:
-        if length < 0:
-            return []
-        if start_id not in self.adj or goal_id not in self.adj:
-            raise KeyError('Unknown node provided to HexGrid.path_with_exact_length.')
-        blocked_set = set(blocked or ())
-        blocked_set.discard(start_id)
-        blocked_set.discard(goal_id)
-        path = [start_id]
-        visited = {start_id}
-        result: list[int] = []
+        # let all nodes be assigned ids
+        rad = self.radius
+        nid = 0
+        for q in range(-rad, rad + 1):
+            s1 = max(-rad, -q - rad)
+            s2 = min(rad, -q + rad)
+            for r in range(s1, s2 + 1):
+                for a in self.aid_to_aspect.keys():
+                    coord = (q, r, a)
+                    self.id_to_coord[nid] = coord
+                    self.coord_to_id[coord] = nid
+                    nid += 1
 
-        def dfs(node: int, remaining: int) -> bool:
-            if remaining == 0:
-                if node == goal_id:
-                    result.extend(path)
-                    return True
-                return False
-            for neighbor in self.adj.get(node, ()):
-                if neighbor in blocked_set or neighbor in visited:
-                    continue
-                visited.add(neighbor)
-                path.append(neighbor)
-                if dfs(neighbor, remaining - 1):
-                    return True
-                path.pop()
-                visited.remove(neighbor)
-            return False
+        # axial neighbor directions
+        dirs = [(1, 0), (1, -1), (0, -1), (-1, 0), (-1, 1), (0, 1)]
+        # construct node adjacency lists
+        for id, (q, r, a) in self.id_to_coord.items():
+            for dq, dr in dirs:
+                for da in self.aspect_adj[a]:
+                    ncoord = (q + dq, r + dr, da)
+                    if (ncoord in self.coord_to_id):
+                        nid = self.coord_to_id[ncoord]
+                        self.adj.setdefault(id, set()).add(nid)
+                        self.adj.setdefault(nid, set()).add(id)
+                        if (not (nid, id) in self.edge_list):
+                            self.edge_list.add((id, nid))
 
-        return result if dfs(start_id, length) else []
+    def neighbors(self, node_id: int):
+        return list(self.adj.get(node_id, []))
 
+    def node_count(self):
+        return len(self.adj)
 
-def find_aspect_path(relations: AspectRelations, start: str, goal: str) -> list[str]:
-    if start not in relations.aspect_relations or goal not in relations.aspect_relations:
-        raise KeyError('Unknown aspect provided to path finder.')
-    if start == goal:
-        return [start]
-    best_costs: dict[str, int] = {start: 0}
-    frontier: list[tuple[int, int, str, list[str]]] = []
-    initial_h = relations.min_cost(start, goal)
-    if initial_h == float('inf'):
-        return []
-    heappush(frontier, (initial_h, 0, start, [start]))
-    while frontier:
-        f_cost, g_cost, current, path = heappop(frontier)
-        if current == goal:
-            return path
-        if g_cost > best_costs.get(current, float('inf')):
-            continue
-        for neighbor in relations.candidate_moves(current):
-            step_cost = relations.transition_cost(current, neighbor)
-            tentative = g_cost + step_cost
-            if tentative >= best_costs.get(neighbor, float('inf')):
-                continue
-            heuristic = relations.min_cost(neighbor, goal)
-            if heuristic == float('inf'):
-                continue
-            best_costs[neighbor] = tentative
-            heappush(frontier, (tentative + heuristic, tentative, neighbor, path + [neighbor]))
-    return []
+    def all_nodes(self):
+        return list(self.adj.keys())
+    
+def pulp_solution1():
+    grid = CombinedGrid(4)
+    edge_list = list(grid.edge_list)
+    print("pulp_solution1", len(grid.all_nodes()), len(edge_list))
 
+    prob = LpProblem("HexSteinerBoard", LpMinimize)
+    terminals = [grid.coord_to_id[(-3,2,0)], grid.coord_to_id[(3,0,1)]]
+    root = grid.coord_to_id[(-3,2,0)]
 
-def find_aspect_path_with_steps(relations: AspectRelations, start: str, goal: str, steps: int) -> list[str]:
-    if start not in relations.aspect_relations or goal not in relations.aspect_relations:
-        raise KeyError('Unknown aspect provided to fixed-step path finder.')
-    if steps == 0:
-        return [start] if start == goal else []
-    best_costs: dict[tuple[str, int], int] = {(start, 0): 0}
-    parents: dict[tuple[str, int], tuple[str, int]] = {}
-    frontier: list[tuple[int, int, str]] = [(0, 0, start)]
+    cell_vars = LpVariable.dicts("cell_vars", grid.all_nodes(), 0, 1, cat="Binary")
+    edge_vars = LpVariable.dicts("edge_vars", edge_list, 0, 1, cat="Binary")
+    flow = LpVariable.dicts("flow", edge_list + [(b,a) for (a,b) in edge_list], 0, cat="Integer")
 
-    def reconstruct(state: tuple[str, int]) -> list[str]:
-        aspect, _ = state
-        route = [aspect]
-        while state in parents:
-            state = parents[state]
-            route.append(state[0])
-        return list(reversed(route))
+    for t in terminals:
+        prob += cell_vars[t] == 1
+    for (a,b) in edge_list:
+        prob += edge_vars[(a,b)] <= cell_vars[a]
+        prob += edge_vars[(a,b)] <= cell_vars[b]
 
-    while frontier:
-        cost, step, current = heappop(frontier)
-        if cost > best_costs.get((current, step), float('inf')):
-            continue
-        if step == steps and current == goal:
-            return reconstruct((current, step))
-        if step == steps:
-            continue
-        for neighbor in relations.candidate_moves(current):
-            next_step = step + 1
-            new_cost = cost + relations.transition_cost(current, neighbor)
-            state = (neighbor, next_step)
-            if new_cost >= best_costs.get(state, float('inf')):
-                continue
-            best_costs[state] = new_cost
-            parents[state] = (current, step)
-            heappush(frontier, (new_cost, next_step, neighbor))
-    return []
+    num_cells = len(grid.all_nodes())
+    for (a,b) in edge_list + [(b,a) for (a,b) in edge_list]:
+        prob += flow[(a,b)] <= (num_cells * edge_vars.get((a,b), edge_vars.get((b,a))))
+        
+    for c in grid.all_nodes():
+        inflow = sum(flow[(a,b)] for (a,b) in flow if b == c)
+        outflow = sum(flow[(a,b)] for (a,b) in flow if a == c)
+        if c == root:
+            # Root supplies total flow = number of other placed nodes
+            prob += outflow - inflow == (sum(cell_vars[k] for k in grid.all_nodes()) - 1)
+        else:
+            prob += inflow - outflow == cell_vars[c]
+    non_terminals = [c for c in grid.all_nodes() if c not in terminals]
+    prob += lpSum(cell_vars[c] for c in non_terminals)
+    prob.solve()
 
+def pulp_solution2():
+    # aspect specific lookups that use aid/'a'/aspect id <=> str
+    aspect_to_aid : dict[str, int] = {}
+    aid_to_aspect : dict[int, str] = {}
+    aspect_adj : dict[int, set[int]] = {}
 
-def aspect_path_cost(relations: AspectRelations, path: list[str]) -> int:
-    return sum(relations.transition_cost(path[i - 1], path[i]) for i in range(1, len(path)))
+    with open('aspects.json') as aspects_file:
+        data : dict = json.load(aspects_file)
+
+    # let all aspects be assigned ids
+    for aid, (aspect, components) in enumerate(data.items()):
+        aspect_to_aid[aspect] = aid
+        aid_to_aspect[aid] = aspect
+    
+    # construct aspect adjacency lists
+    for aspect, components in data.items():
+        a1 = aspect_to_aid[aspect]
+        components = list(components or [])
+        for component in components:
+            a2 = aspect_to_aid[component]
+            aspect_adj.setdefault(a1, set()).add(a2)
+            aspect_adj.setdefault(a2, set()).add(a1)
+    
+    hex_grid = HexGrid(4)
+
+    cell_list = set()
+    for node in hex_grid.all_nodes():
+        for aid in aid_to_aspect.keys():
+            cell_list.add((node, aid))
+    cell_list = list(cell_list)
+
+    edge_list = set()
+    for (n1, n2) in hex_grid.edge_list:
+        for aid in aid_to_aspect.keys():
+            for caid in aspect_adj[aid]:
+                edge_list.add(((n1, aid), (n2, caid)))
+                # edge_list.add(((n1, caid), (n2, aid)))
+    edge_list = list(edge_list)
+    
+    print("pulp_solution2", len(cell_list), len(edge_list))
+
+    prob = LpProblem("HexSteinerBoard", LpMinimize)
+    terminals = [(hex_grid.coord_to_id[(-3,2,)],0), (hex_grid.coord_to_id[(3,0)],1)]
+    root = terminals[0]
+    cell_vars = LpVariable.dicts("cell_vars", cell_list, 0, 1, cat="Binary")
+    edge_vars = LpVariable.dicts("edge_vars", edge_list, 0, 1, cat="Binary")
+    flow = LpVariable.dicts("flow", edge_list + [(b,a) for (a,b) in edge_list], 0, cat="Integer")
+    for t in terminals:
+        prob += cell_vars[t] == 1
+    for (a,b) in edge_list:
+        prob += edge_vars[(a,b)] <= cell_vars[a]
+        prob += edge_vars[(a,b)] <= cell_vars[b]
+    num_cells = len(cell_list)
+    for (a,b) in edge_list + [(b,a) for (a,b) in edge_list]:
+        prob += flow[(a,b)] <= (num_cells * edge_vars.get((a,b), edge_vars.get((b,a))))
+    for c in cell_list:
+        inflow = sum(flow[(a,b)] for (a,b) in flow if b == c)
+        outflow = sum(flow[(a,b)] for (a,b) in flow if a == c)
+        if c == root:
+            # Root supplies total flow = number of other placed nodes
+            prob += outflow - inflow == (sum(cell_vars[k] for k in cell_list) - 1)
+        else:
+            prob += inflow - outflow == cell_vars[c]
+    non_terminals = [c for c in cell_list if c not in terminals]
+    prob += lpSum(cell_vars[c] for c in non_terminals)
+    prob.solve()
+
+    print("Status:", LpStatus[prob.status])
+    print("Objective (extra pieces):", value(prob.objective))
+    print("Placed cells:")
+    for c in cell_list:
+        if value(cell_vars[c]) == 1:
+            print(" ", hex_grid.id_to_coord[c])
+
+def pulp_solution3():
+    grid = CombinedGrid(4)
+    edge_list = list(grid.edge_list)
+    print("pulp_solution3", len(grid.all_nodes()), len(edge_list))
+
+    model = cp_model.CpModel()
+    terminals = [grid.coord_to_id[(-3,2,0)], grid.coord_to_id[(3,0,1)]]
+    root = grid.coord_to_id[(-3,2,0)]
+
+    cell_vars = {c: model.NewBoolVar(f"cell_vars_{c}") for c in grid.all_nodes()}
+    edge_vars = {e: model.NewBoolVar(f"edge_vars_{e}") for e in edge_list}
+    flow = {f: model.NewBoolVar(f"flow_{f}") for f in edge_list + [(b,a) for (a,b) in edge_list]}
+
+    for t in terminals:
+        model.Add(cell_vars[t] == 1)
+    for (a,b) in edge_list:
+        model.Add(edge_vars[(a,b)] <= cell_vars[a])
+        model.Add(edge_vars[(a,b)] <= cell_vars[b])
+
+    num_cells = len(grid.all_nodes())
+    for (a,b) in edge_list + [(b,a) for (a,b) in edge_list]:
+        model.Add(flow[(a,b)] <= (num_cells * edge_vars.get((a,b), edge_vars.get((b,a)))))
+        
+    for c in grid.all_nodes():
+        inflow = sum(flow[(a,b)] for (a,b) in flow if b == c)
+        outflow = sum(flow[(a,b)] for (a,b) in flow if a == c)
+        if c == root:
+            # Root supplies total flow = number of other placed nodes
+            model.Add(outflow - inflow == (sum(cell_vars[k] for k in grid.all_nodes()) - 1))
+        else:
+            model.Add(inflow - outflow == cell_vars[c])
+    non_terminals = [c for c in grid.all_nodes() if c not in terminals]
+    model.Minimize(sum(cell_vars[c] for c in non_terminals))
+    solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = 500  # limit for safety
+    solver.parameters.num_search_workers = 8     # multi-core
+    status = solver.Solve(model)
+    # --- Output ---
+    print("Status:", solver.StatusName(status))
+    print("Objective:", solver.ObjectiveValue())
+    print("Placed cells:")
+    for c in grid.all_nodes():
+        if solver.Value(cell_vars[c]):
+            print(" ", c)
+
+def pulp_hex_test():
+    hex_grid = HexGrid(4)
+    edge_list = list(hex_grid.edge_list)
+
+    prob = LpProblem("HexSteinerBoard", LpMinimize)
+    terminals = [hex_grid.coord_to_id[(-3,2)], hex_grid.coord_to_id[(3,0)]]
+    root = hex_grid.coord_to_id[(-3,2)]
+    cell_vars = LpVariable.dicts("cell_vars", hex_grid.all_nodes(), 0, 1, cat="Binary")
+    edge_vars = LpVariable.dicts("edge_vars", edge_list, 0, 1, cat="Binary")
+    flow = LpVariable.dicts("flow", edge_list + [(b,a) for (a,b) in edge_list], 0, cat="Integer")
+    for t in terminals:
+        prob += cell_vars[t] == 1
+    for (a,b) in edge_list:
+        prob += edge_vars[(a,b)] <= cell_vars[a]
+        prob += edge_vars[(a,b)] <= cell_vars[b]
+    num_cells = len(hex_grid.all_nodes())
+    for (a,b) in edge_list + [(b,a) for (a,b) in edge_list]:
+        prob += flow[(a,b)] <= (num_cells * edge_vars.get((a,b), edge_vars.get((b,a))))
+    for c in hex_grid.all_nodes():
+        inflow = sum(flow[(a,b)] for (a,b) in flow if b == c)
+        outflow = sum(flow[(a,b)] for (a,b) in flow if a == c)
+        if c == root:
+            # Root supplies total flow = number of other placed nodes
+            prob += outflow - inflow == (sum(cell_vars[k] for k in hex_grid.all_nodes()) - 1)
+        else:
+            prob += inflow - outflow == cell_vars[c]
+    non_terminals = [c for c in hex_grid.all_nodes() if c not in terminals]
+    prob += lpSum(cell_vars[c] for c in non_terminals)
+    prob.solve()
+
+    print("Status:", LpStatus[prob.status])
+    print("Objective (extra pieces):", value(prob.objective))
+    print("Placed cells:")
+    for c in hex_grid.all_nodes():
+        if value(cell_vars[c]) == 1:
+            print(" ", hex_grid.id_to_coord[c])
+
+def pulp_test():
+    cells = [(0,0), (0,1), (1,0), (1,1)]
+    adj = [
+        ((0,0),(0,1)), ((0,0),(1,0)),
+        ((0,1),(1,1)), ((1,0),(1,1))
+    ]
+
+    terminals = [(0,0), (1,1)]
+    root = (0,0)
+
+    prob = LpProblem("SteinerBoard", LpMinimize)
+
+    # 1 = cell placed
+    cell_vars = LpVariable.dicts("cell_vars", cells, 0, 1, cat="Binary")
+    # 1 = edge placed
+    edge_vars = LpVariable.dicts("edge_vars", adj, 0, 1, cat="Binary")
+
+    flow = LpVariable.dicts("flow", adj + [(b,a) for (a,b) in adj], 0, cat="Integer")
+
+    # Force terminals placed
+    for t in terminals:
+        prob += cell_vars[t] == 1
+
+    # edge (a,b) placed iff a & b placed
+    for (a,b) in adj:
+        prob += edge_vars[(a,b)] <= cell_vars[a]
+        prob += edge_vars[(a,b)] <= cell_vars[b]
+
+    # --- Connectivity via flow from root ---
+    # Capacity: flow can only go through placed edges
+    num_cells = len(cells)
+    # flow (a,b) == 0 if (a,b) not placed
+    for (a,b) in adj + [(b,a) for (a,b) in adj]:
+        prob += flow[(a,b)] <= (num_cells * edge_vars.get((a,b), edge_vars.get((b,a))))
+
+    # Flow conservation: root sends out (num_selected - 1) units; others receive 1 if selected
+    for c in cells:
+        inflow = sum(flow[(a,b)] for (a,b) in flow if b == c)
+        outflow = sum(flow[(a,b)] for (a,b) in flow if a == c)
+        if c == root:
+            # Root supplies total flow = number of other placed nodes
+            prob += outflow - inflow == (sum(cell_vars[k] for k in cells) - 1)
+        else:
+            prob += inflow - outflow == cell_vars[c]
+
+    # --- Objective: minimize number of placed (non-terminal) pieces ---
+    non_terminals = [c for c in cells if c not in terminals]
+    prob += lpSum(cell_vars[c] for c in non_terminals)
+
+    prob.solve()
+
+    print("Status:", LpStatus[prob.status])
+    print("Objective (extra pieces):", value(prob.objective))
+    print("Placed cells:")
+    for c in cells:
+        if value(cell_vars[c]) > 0.5:
+            print(" ", c)
+
+if __name__ == "__main__":
+    pulp_solution3()
