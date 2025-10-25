@@ -28,6 +28,7 @@ class TRSApp(mig.ImguiApp):
 
         self.grid_size = 3
         self.grid_struct = HexGrid(self.grid_size)
+        self.full_grid = HexGrid(self.grid_size)
         self.aspect_rels = AspectRelations()
         self.placed_aspects : dict[int, str] = {}
         
@@ -55,25 +56,32 @@ class TRSApp(mig.ImguiApp):
             # disabled background
             ig.set_cursor_pos(pos)
             ig.begin_disabled()
-            ig.image_button(f"grid_image_button_bg_{id}", self.hex_texture, image_size=self.button_size, tint_col=(0.5, 0.5, 0.5, 0.5))
+            ig.image_button(f"grid_image_button_bg_{id}", self.hex_texture, image_size=self.button_size, tint_col=(0.4, 0.6, 0.4, 0.5))
             ig.end_disabled()
-        else:
+        elif (not grid_id in self.grid_struct.disabled_nodes):
             ig.set_cursor_pos(pos)
             if (ig.image_button(f"grid_image_button_{id}", self.hex_texture, image_size=self.button_size)):
-                self.grid_struct.remove_id(grid_id)
+                # self.grid_struct.remove_id(grid_id)
+                self.grid_struct.disable_id(grid_id)
             if (ig.begin_drag_drop_target()):
                 payload : ig.Payload = ig.accept_drag_drop_payload("aspect_dd", ig.DragDropFlags.NONE)
                 if (payload != None):
                     self.placed_aspects[grid_id] = payload.data().decode('utf-8')
                 ig.end_drag_drop_target()
+        else:
+            ig.set_cursor_pos(pos)
+            if (ig.image_button(f"grid_image_button_dis_{id}", self.hex_texture, image_size=self.button_size, tint_col=(0.6, 0.4, 0.4, 0.5))):
+                # self.grid_struct.add_node(self.full_grid., grid_id)
+                self.grid_struct.enable_id(grid_id)
+
 
     def build_grid(self):
         ig.begin_child("ch1", child_flags = ig.ChildFlags.AUTO_RESIZE_X | ig.ChildFlags.AUTO_RESIZE_Y | ig.ChildFlags.BORDERS)
         ig.push_style_color(ig.Col.BUTTON, (0,0,0,0))
         button_coords : list[tuple[int, int]] = []
         count = 0
-        for node_id in self.grid_struct.all_nodes():
-            coords = self.grid_struct.coord_of(node_id)
+        for node_id in self.full_grid.all_nodes():
+            coords = self.full_grid.id_to_coord.get(node_id)
             pos = (coords[1] * self.horz_spacing, (coords[0] * self.vert_spacing1) + (coords[1] * self.vert_spacing2), node_id)
             button_coords.append(pos)
         if (len(button_coords) != 0):
@@ -107,6 +115,7 @@ class TRSApp(mig.ImguiApp):
     def reset(self):
         self.placed_aspects = {}
         self.grid_struct = HexGrid(self.grid_size)
+        self.full_grid = HexGrid(self.grid_size)
 
     def solve(self):
         algo_placed : dict[int, str] = {}
@@ -122,7 +131,7 @@ class TRSApp(mig.ImguiApp):
                     if not base_path:
                         continue
                     min_steps = len(base_path) - 1
-                    max_steps = self.grid_struct.node_count() - 1
+                    max_steps = max(10, self.grid_struct.node_count() // 2)
                     blocked = set(algo_placed.keys()) - {target_node}
                     for steps in range(min_steps, max_steps + 1):
                         aspect_path = find_aspect_path_with_steps(self.aspect_rels, aspect_name, target_aspect, steps)
