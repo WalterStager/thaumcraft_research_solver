@@ -38,6 +38,8 @@ class TRSApp(mig.ImguiApp):
         self.placed_aspects : dict[int, str] = {}
         
         self.hex_texture = mig.load_texture("hex.png")
+        self.invisible_table_flags = ig.TableFlags.NO_BORDERS_IN_BODY | ig.TableFlags.NO_SAVED_SETTINGS
+        self.invisible_column_flags = ig.TableColumnFlags.NO_REORDER | ig.TableColumnFlags.NO_RESIZE | ig.TableColumnFlags.NO_SORT | ig.TableColumnFlags.NO_HEADER_LABEL
 
         with open('aspects.json') as aspects_file:
             self.aspects : dict[str, None | list[str]] = json.loads(aspects_file.read())
@@ -79,7 +81,6 @@ class TRSApp(mig.ImguiApp):
                 # self.grid.add_node(self.full_grid., grid_id)
                 self.grid.enable_id(grid_id)
 
-
     def build_grid(self):
         ig.begin_child("ch1", child_flags = ig.ChildFlags.AUTO_RESIZE_X | ig.ChildFlags.AUTO_RESIZE_Y | ig.ChildFlags.BORDERS)
         ig.push_style_color(ig.Col.BUTTON, (0,0,0,0))
@@ -101,14 +102,71 @@ class TRSApp(mig.ImguiApp):
         ig.pop_style_color()
         ig.end_child()
     
+    def build_aspect_tooltip(self, aspect : str):
+        if (ig.begin_tooltip()):
+            num_cols = len(self.aspect_rels.aspect_relations[aspect]) + 3
+            aspect_names1 = list(self.aspect_rels.aspect_children.get(aspect, []))
+            aspect_names2 = list(self.aspect_rels.aspect_parents.get(aspect, []))
+            aspect_textures1 = [self.aspect_textures[a] for a in aspect_names1]
+            aspect_textures2 = [self.aspect_textures[a] for a in aspect_names2]
+            if (ig.begin_table(f"aspect_img_button_{aspect}_tooltip", num_cols, ig.TableFlags.NO_SAVED_SETTINGS | ig.TableFlags.BORDERS_INNER_V)):
+                for i in range(num_cols):
+                    ig.table_setup_column(f"aspect_img_button_{aspect}_tooltip_col{i}", self.invisible_column_flags)
+                # text labels
+                ig.table_next_row()
+                index = 0
+                for aspect_name in aspect_names1:
+                    ig.table_set_column_index(index)
+                    index += 1
+                    ig.text(aspect_name)
+
+                # skip a column before and after hovered aspect
+                index += 1
+                ig.table_set_column_index(index)
+                ig.text(aspect)
+                index += 2
+
+                for aspect_name in aspect_names2:
+                    ig.table_set_column_index(index)
+                    index += 1
+                    ig.text(aspect_name)
+
+                # images
+                ig.table_next_row()
+                index = 0
+                for aspect_texture in aspect_textures1:
+                    ig.table_set_column_index(index)
+                    index += 1
+                    ig.image(aspect_texture, self.button_size)
+
+                # show separators bofre and after hovered aspect
+                ig.table_set_column_index(index)
+                index += 1
+                ig.text(">")
+                ig.table_set_column_index(index)
+                index += 1
+                ig.image(self.aspect_textures[aspect], self.button_size)
+                ig.table_set_column_index(index)
+                index += 1
+                ig.text(">")
+
+                for aspect_texture in aspect_textures2:
+                    ig.table_set_column_index(index)
+                    index += 1
+                    ig.image(aspect_texture, self.button_size)
+                
+                ig.end_table()
+            ig.end_tooltip()
+
     def build_aspects(self):
         ig.begin_child("ch2", child_flags = ig.ChildFlags.AUTO_RESIZE_X | ig.ChildFlags.AUTO_RESIZE_Y | ig.ChildFlags.BORDERS)
         cols = 6
         count = 0
         for aspect in self.aspects.keys():
-            
             ig.image_button(f"aspect_img_button_{aspect}", self.aspect_textures[aspect], image_size=self.button_size)
-            ig.set_item_tooltip(f"[{', '.join(self.aspect_rels.aspect_children.get(aspect, []))}] > {aspect} > [{', '.join(self.aspect_rels.aspect_parents.get(aspect, []))}]")
+            if (ig.is_item_hovered()):
+                self.build_aspect_tooltip(aspect)
+            # ig.set_item_tooltip(f"[{', '.join(self.aspect_rels.aspect_children.get(aspect, []))}] > {aspect} > [{', '.join(self.aspect_rels.aspect_parents.get(aspect, []))}]")
             if (ig.begin_drag_drop_source()):
                 ig.set_drag_drop_payload("aspect_dd", aspect.encode('utf-8'))
                 ig.end_drag_drop_source()
@@ -129,6 +187,7 @@ class TRSApp(mig.ImguiApp):
             print(contiguous_sets, iters)
             setA = contiguous_sets[0]
             added_nodes = False
+            # todo: save all the solutions and pick the best one?
             for node in setA:
                 others = [x for sl in contiguous_sets[1:] for x in sl]
                 path_length = 0
@@ -227,23 +286,32 @@ class TRSApp(mig.ImguiApp):
                 ig.end_menu()
             ig.end_menu_bar()
 
-        if (ig.button("reset")):
-            self.reset()
-        ig.same_line()
-        if (ig.button("solve")):
-            self.solve()
-        ig.same_line()
-        ig.set_next_item_width(ig.calc_text_size("grid size")[0] + 80 * self.global_scale_factor)
-        res, temp_size = ig.input_int("grid size", self.grid_size, 1, 1)
-        if (res):
-            self.grid_size = temp_size
-            self.grid_size = max(2, self.grid_size)
-            self.grid_size = min(10, self.grid_size)
-            self.reset()
+        if (ig.begin_table("Main window table", 2, self.invisible_table_flags)):
+            ig.table_setup_column("Main window col 1", self.invisible_column_flags)
+            ig.table_setup_column("Main window col 2", self.invisible_column_flags)
+            
+            ig.table_next_row()
+            ig.table_set_column_index(0)
+            if (ig.button("reset")):
+                self.reset()
+            ig.same_line()
+            if (ig.button("solve")):
+                self.solve()
+            ig.table_set_column_index(1)
+            ig.set_next_item_width(ig.calc_text_size("grid size")[0] + 80 * self.global_scale_factor)
+            res, temp_size = ig.input_int("grid size", self.grid_size, 1, 1)
+            if (res):
+                self.grid_size = temp_size
+                self.grid_size = max(2, self.grid_size)
+                self.grid_size = min(10, self.grid_size)
+                self.reset()
 
-        self.build_aspects()
-        ig.same_line()
-        self.build_grid()
+            ig.table_next_row()
+            ig.table_set_column_index(0)
+            self.build_aspects()
+            ig.table_set_column_index(1)
+            self.build_grid()
+            ig.end_table()
         ig.end()
 
 app = TRSApp(title = 'Thaumcraft Research Solver', width = 1500, height = 1100)
