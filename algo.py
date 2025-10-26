@@ -78,7 +78,7 @@ def solver_attempt():
 
     model = cp_model.CpModel()
     terminals = [grid.coord_to_id[(-3,2,0)], grid.coord_to_id[(3,0,1)]]
-    root = grid.coord_to_id[(-3,2,0)]
+    root = terminals[0]
 
     cell_vars = {c: model.NewBoolVar(f"cell_vars_{c}") for c in grid.all_nodes()}
     coord_groups = {}
@@ -115,6 +115,9 @@ def solver_attempt():
     model.Minimize(sum(cell_vars[c] for c in non_terminals))
 
     solver = cp_model.CpSolver()
+    solver.parameters.log_to_stdout = True
+    solver.parameters.log_search_progress = True
+    solver.parameters.search_branching = cp_model.FIXED_SEARCH
     solver.parameters.max_time_in_seconds = 500
     solver.parameters.num_search_workers = 16
     status = solver.Solve(model)
