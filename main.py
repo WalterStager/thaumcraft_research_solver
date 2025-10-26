@@ -117,9 +117,8 @@ class TRSApp(mig.ImguiApp):
         self.grid = HexGrid(self.grid_size)
         self.full_grid = HexGrid(self.grid_size)
 
-    def solve(self, first = True):
-        starting_nodes = list(self.placed_aspects.keys())
-        if (len(self.placed_aspects.keys()) < 2):
+    def solve(self, starting_nodes, try_again = True):
+        if (len(starting_nodes) < 2):
             return
         
         for start_node in starting_nodes:
@@ -139,8 +138,8 @@ class TRSApp(mig.ImguiApp):
                 
                 self.placed_aspects.update(zip(grid_path, aspect_path))
                 break
-        if (first):
-            self.solve(False)
+        if (try_again):
+            self.solve(starting_nodes, False)
 
     def calculate_scaling(self):
         self.global_scale_factor = max(0.1, self.global_scale_factor)
@@ -173,7 +172,7 @@ class TRSApp(mig.ImguiApp):
             self.reset()
         ig.same_line()
         if (ig.button("solve")):
-            self.solve()
+            self.solve(list(self.placed_aspects.keys()))
         ig.same_line()
         ig.set_next_item_width(ig.calc_text_size("grid size")[0] + 80 * self.global_scale_factor)
         res, temp_size = ig.input_int("grid size", self.grid_size, 1, 1)
