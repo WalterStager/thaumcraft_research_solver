@@ -81,6 +81,13 @@ def solver_attempt():
     root = grid.coord_to_id[(-3,2,0)]
 
     cell_vars = {c: model.NewBoolVar(f"cell_vars_{c}") for c in grid.all_nodes()}
+    coord_groups = {}
+    for nid, (q, r, a) in grid.id_to_coord.items():
+        coord_groups.setdefault((q, r), []).append(nid)
+    for ids in coord_groups.values():
+        ids = [nid for nid in ids if nid in cell_vars]
+        if len(ids) > 1:
+            model.Add(sum(cell_vars[nid] for nid in ids) <= 1)
     edge_vars = {e: model.NewBoolVar(f"edge_vars_{e}") for e in edge_list}
     flow = {f: model.NewIntVar(0, num_cells, f"flow_{f}") for f in edge_list + [(b,a) for (a,b) in edge_list]}
 
@@ -117,7 +124,8 @@ def solver_attempt():
     print("Placed cells:")
     for c in grid.all_nodes():
         if solver.Value(cell_vars[c]):
-            print(" ", c)
+            q, r, a = grid.id_to_coord[c]
+            print(f" ({q, r})-{grid.aid_to_aspect[a]}")
 
 if __name__ == "__main__":
     solver_attempt()
