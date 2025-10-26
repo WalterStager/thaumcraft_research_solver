@@ -1,5 +1,5 @@
 import json
-import math
+from enum import Enum
 import numpy as np
 import myimgui as mig
 from slimgui import imgui as ig
@@ -23,6 +23,10 @@ ul  -34,  22    -1,  1
 pos = (r*-34, q*-34 + r*-22)
 """
 
+class SolverMode(Enum):
+    FAST = 1
+    SLOW = 2
+
 class TRSApp(mig.ImguiApp):
     def setup(self):
         self.global_scale_factor = 1
@@ -36,6 +40,7 @@ class TRSApp(mig.ImguiApp):
         self.full_grid = HexGrid(self.grid_size)
         self.aspect_rels = AspectRelations()
         self.placed_aspects : dict[int, str] = {}
+        self.solver_mode = SolverMode.SLOW
         
         self.hex_texture = mig.load_texture("hex.png")
         self.invisible_table_flags = ig.TableFlags.NO_BORDERS_IN_BODY | ig.TableFlags.NO_SAVED_SETTINGS
@@ -151,13 +156,14 @@ class TRSApp(mig.ImguiApp):
         self.full_grid = HexGrid(self.grid_size)
 
     def solve(self):
+        #todo: fix existing aspects getting overwritten in small grids
         contiguous_sets = self.grid.split_contiguous_nodes(self.placed_aspects.keys())
         iters = 0
         while (len(contiguous_sets) > 1 and iters < 100):
-            print(contiguous_sets, iters)
             setA = contiguous_sets[0]
-            added_nodes = False
-            # todo: save all the solutions and pick the best one?
+            best_solution = None
+            best_cost = 999999999
+
             for node in setA:
                 others = [x for sl in contiguous_sets[1:] for x in sl]
                 path_length = 0
@@ -169,11 +175,17 @@ class TRSApp(mig.ImguiApp):
                     if (aspect_path == None):
                         path_length = len(grid_path) + 1
                         continue
-                    added_nodes = True
-                    self.placed_aspects.update(zip(grid_path[1:-1], aspect_path[1:-1]))
+                    costs = [self.aspect_rels.aspect_costs[x] for x in aspect_path[1:-1]]
+                    solution_cost = sum(costs)
+                    solution = zip(grid_path[1:-1], aspect_path[1:-1])
+                    if (solution_cost <= best_cost):
+                        best_cost = solution_cost
+                        best_solution = solution
                     break
-                if (added_nodes):
+                if (best_solution != None and self.solver_mode == SolverMode.FAST):
                     break
+            
+            self.placed_aspects.update(best_solution)
             contiguous_sets = self.grid.split_contiguous_nodes(self.placed_aspects.keys())
             iters += 1
 
@@ -188,6 +200,7 @@ class TRSApp(mig.ImguiApp):
         self.vert_spacing1 = -1 * (button_scale_size + margin)
         self.vert_spacing2 = -1 * ((button_scale_size + margin) // 2)
 
+    # todo: ugly af, make better
     def load_settings(self):
         if not hasattr(self, "settings_path") or not self.settings_path.exists():
             return
@@ -217,6 +230,7 @@ class TRSApp(mig.ImguiApp):
             except (TypeError, ValueError):
                 pass
 
+    # todo: ugly af, make better
     def save_settings(self):
         if not hasattr(self, "settings_path"):
             return
@@ -247,12 +261,19 @@ class TRSApp(mig.ImguiApp):
 
         if (ig.begin_menu_bar()):
             if (ig.begin_menu("Options")):
-                ig.set_next_item_width(ig.calc_text_size("UI Scale")[0] + 80 * self.global_scale_factor)
+                ig.set_next_item_width(ig.calc_text_size("UI Scale")[0] + self.button_size[0])
                 res, temp_gsf = ig.input_float("UI Scale", self.global_scale_factor, 0.1, 1, flags = ig.InputTextFlags.NONE)
                 if (res):
                     self.global_scale_factor = temp_gsf
                     self.calculate_scaling()
 
+                ig.text("Solver mode (?)")
+                ig.set_item_tooltip("Slow checks more solutions to find the 'cheapest' one")
+                if (ig.radio_button("fast##solver_mode", self.solver_mode == SolverMode.FAST)):
+                    self.solver_mode = SolverMode.FAST
+                ig.same_line()
+                if (ig.radio_button("slow##solver_mode", self.solver_mode == SolverMode.SLOW)):
+                    self.solver_mode = SolverMode.SLOW
                 ig.end_menu()
             ig.end_menu_bar()
 
@@ -268,7 +289,7 @@ class TRSApp(mig.ImguiApp):
             if (ig.button("solve")):
                 self.solve()
             ig.table_set_column_index(1)
-            ig.set_next_item_width(ig.calc_text_size("grid size")[0] + 80 * self.global_scale_factor)
+            ig.set_next_item_width(ig.calc_text_size("grid size")[0] + self.button_size[0])
             res, temp_size = ig.input_int("grid size", self.grid_size, 1, 1)
             if (res):
                 self.grid_size = temp_size
