@@ -27,23 +27,42 @@ class AspectRelations:
                 self.aspect_parents.setdefault(component, set()).add(aspect)
                 self.aspect_children.setdefault(aspect, set()).add(component)
 
-
     def neighbors(self, aspect: str):
         return list(self.aspect_relations.get(aspect, []))
 
     def all_nodes(self):
         return list(self.aspect_relations.keys())
 
+    def find_path_exact_length(self, start: str, end: str, length: int) -> list[str] | None:
+        if length < 0 or start not in self.aspect_relations or end not in self.aspect_relations:
+            return None
+        if length == 0:
+            return [start] if start == end else None
+
+        queue = deque([(start, [start])])
+        while queue:
+            node, path = queue.popleft()
+            path_length = len(path) - 1
+            if path_length == length:
+                if node == end:
+                    return path
+                continue
+            for neighbor in self.aspect_relations.get(node, []):
+                if neighbor in path:
+                    continue
+                queue.append((neighbor, path + [neighbor]))
+        return None
+
 class HexGrid:
     """
     Axial hex coordinates (q, r)
     """
     def __init__(self, radius: int):
-        self.radius = max(0, radius)
+        self.radius = max(0, radius - 1)
         self.id_to_coord : dict[int, (int,int)] = {}
         self.coord_to_id : dict[(int,int), int] = {}
         self.adj : dict[int, list[int]] = {}
-        self.disabled_nodes : set[int] = {}
+        self.disabled_nodes : set[int] = set()
         self._build()
 
     def _build(self):
@@ -86,3 +105,24 @@ class HexGrid:
 
     def all_nodes(self):
         return list([x for x in self.adj.keys() if not x in self.disabled_nodes])
+    
+    def find_path_minimum_length(self, start: int, ends: list[int], minimum_length: int) -> list[int] | None:
+        if start not in self.adj or start in self.disabled_nodes:
+            return None
+        targets = {end for end in ends if end in self.adj and end not in self.disabled_nodes}
+        if not targets:
+            return None
+
+        queue = deque([(start, [start])])
+        min_len = max(0, minimum_length)
+
+        while queue:
+            node, path = queue.popleft()
+            distance = len(path) - 1
+            if node in targets and distance >= min_len:
+                return path
+            for neighbor in self.neighbors(node):
+                if neighbor in path:
+                    continue
+                queue.append((neighbor, path + [neighbor]))
+        return None

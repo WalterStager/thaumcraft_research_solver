@@ -4,7 +4,7 @@ import numpy as np
 import myimgui as mig
 from slimgui import imgui as ig
 import glfw
-from algo import AspectRelations, HexGrid, find_aspect_path_with_steps, aspect_path_cost
+from algo import AspectRelations, HexGrid
 
 """
 u     0,  44    -1,  0
@@ -27,7 +27,7 @@ class TRSApp(mig.ImguiApp):
         self.calculate_scaling()
 
         self.grid_size = 3
-        self.grid_struct = HexGrid(self.grid_size)
+        self.grid = HexGrid(self.grid_size)
         self.full_grid = HexGrid(self.grid_size)
         self.aspect_rels = AspectRelations()
         self.placed_aspects : dict[int, str] = {}
@@ -58,11 +58,11 @@ class TRSApp(mig.ImguiApp):
             ig.begin_disabled()
             ig.image_button(f"grid_image_button_bg_{id}", self.hex_texture, image_size=self.button_size, tint_col=(0.4, 0.6, 0.4, 0.5))
             ig.end_disabled()
-        elif (not grid_id in self.grid_struct.disabled_nodes):
+        elif (not grid_id in self.grid.disabled_nodes):
             ig.set_cursor_pos(pos)
             if (ig.image_button(f"grid_image_button_{id}", self.hex_texture, image_size=self.button_size)):
-                # self.grid_struct.remove_id(grid_id)
-                self.grid_struct.disable_id(grid_id)
+                # self.grid.remove_id(grid_id)
+                self.grid.disable_id(grid_id)
             if (ig.begin_drag_drop_target()):
                 payload : ig.Payload = ig.accept_drag_drop_payload("aspect_dd", ig.DragDropFlags.NONE)
                 if (payload != None):
@@ -71,8 +71,8 @@ class TRSApp(mig.ImguiApp):
         else:
             ig.set_cursor_pos(pos)
             if (ig.image_button(f"grid_image_button_dis_{id}", self.hex_texture, image_size=self.button_size, tint_col=(0.6, 0.4, 0.4, 0.5))):
-                # self.grid_struct.add_node(self.full_grid., grid_id)
-                self.grid_struct.enable_id(grid_id)
+                # self.grid.add_node(self.full_grid., grid_id)
+                self.grid.enable_id(grid_id)
 
 
     def build_grid(self):
@@ -114,40 +114,33 @@ class TRSApp(mig.ImguiApp):
 
     def reset(self):
         self.placed_aspects = {}
-        self.grid_struct = HexGrid(self.grid_size)
+        self.grid = HexGrid(self.grid_size)
         self.full_grid = HexGrid(self.grid_size)
 
-    def solve(self):
-        algo_placed : dict[int, str] = {}
+    def solve(self, first = True):
         starting_nodes = list(self.placed_aspects.keys())
-        if starting_nodes:
-            anchor = starting_nodes[0]
-            algo_placed[anchor] = self.placed_aspects[anchor]
-            for node in starting_nodes[1:]:
-                aspect_name = self.placed_aspects[node]
-                candidates: list[tuple[int, int, list[int], list[str]]] = []
-                for target_node, target_aspect in algo_placed.items():
-                    base_path = self.grid_struct.shortest_path(node, [target_node])
-                    if not base_path:
-                        continue
-                    min_steps = len(base_path) - 1
-                    max_steps = max(10, self.grid_struct.node_count() // 2)
-                    blocked = set(algo_placed.keys()) - {target_node}
-                    for steps in range(min_steps, max_steps + 1):
-                        aspect_path = find_aspect_path_with_steps(self.aspect_rels, aspect_name, target_aspect, steps)
-                        if not aspect_path:
-                            continue
-                        grid_path = self.grid_struct.path_with_exact_length(node, target_node, steps, blocked)
-                        if not grid_path or len(grid_path) != len(aspect_path):
-                            continue
-                        candidates.append((steps, aspect_path_cost(self.aspect_rels, aspect_path), grid_path, aspect_path))
-                        break
-                if candidates:
-                    _, _, grid_path, aspect_path = min(candidates, key=lambda item: (item[0], item[1]))
-                    algo_placed.update(zip(grid_path, aspect_path))
-                else:
-                    algo_placed[node] = aspect_name
-        self.placed_aspects.update(algo_placed)
+        if (len(self.placed_aspects.keys()) < 2):
+            return
+        
+        for start_node in starting_nodes:
+            others : set[int] = set(self.placed_aspects.keys())
+            others.remove(start_node)
+            print(start_node, others)
+
+            path_length = 0
+            while (path_length < self.grid_size * 2):
+                grid_path = self.grid.find_path_minimum_length(start_node, others, path_length)
+                if (grid_path == None):
+                    continue
+                aspect_path = self.aspect_rels.find_path_exact_length(self.placed_aspects[grid_path[0]], self.placed_aspects[grid_path[-1]], len(grid_path))
+                if (aspect_path == None):
+                    path_length = len(grid_path) + 1
+                    continue
+                
+                self.placed_aspects.update(zip(grid_path, aspect_path))
+                break
+        if (first):
+            self.solve(False)
 
     def calculate_scaling(self):
         self.global_scale_factor = max(0.1, self.global_scale_factor)
