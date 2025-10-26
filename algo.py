@@ -107,6 +107,8 @@ class HexGrid:
         return list([x for x in self.adj.keys() if not x in self.disabled_nodes])
     
     def find_path_minimum_length(self, start: int, ends: list[int], minimum_length: int) -> list[int] | None:
+        if (start in ends):
+            return None
         if start not in self.adj or start in self.disabled_nodes:
             return None
         targets = {end for end in ends if end in self.adj and end not in self.disabled_nodes}
@@ -116,13 +118,39 @@ class HexGrid:
         queue = deque([(start, [start])])
         min_len = max(0, minimum_length)
 
+        best_path = None
+        best_distance = 9999999
+
         while queue:
             node, path = queue.popleft()
             distance = len(path) - 1
-            if node in targets and distance >= min_len:
-                return path
+            if node in targets and distance >= min_len and distance < best_distance:
+                best_path = path
+                best_distance = distance
+            if (distance >= best_distance):
+                continue
             for neighbor in self.neighbors(node):
                 if neighbor in path:
                     continue
                 queue.append((neighbor, path + [neighbor]))
-        return None
+        return best_path
+
+    def split_contiguous_nodes(self, nodes: set[int]) -> list[set[int]]:
+        valid_nodes = {n for n in nodes if n in self.adj and n not in self.disabled_nodes}
+        components: list[set[int]] = []
+        visited: set[int] = set()
+        for node in valid_nodes:
+            if node in visited:
+                continue
+            component: set[int] = set()
+            stack = [node]
+            visited.add(node)
+            while stack:
+                current = stack.pop()
+                component.add(current)
+                for neighbor in self.neighbors(current):
+                    if neighbor in valid_nodes and neighbor not in visited:
+                        visited.add(neighbor)
+                        stack.append(neighbor)
+            components.append(component)
+        return components
