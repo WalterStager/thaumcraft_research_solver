@@ -21,7 +21,7 @@ class AspectRelations:
             data = json.load(aspects_file)
         for aspect, components in data.items():
             components = list(components or [])
-            self.aspect_costs[aspect] = sum([self.aspect_costs.get(c, 0) for c in components])
+            self.aspect_costs[aspect] = 1 + sum([self.aspect_costs.get(c, 0) for c in components])
             for component in components:
                 self.aspect_relations.setdefault(component, set()).add(aspect)
                 self.aspect_relations.setdefault(aspect, set()).add(component)
