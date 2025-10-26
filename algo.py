@@ -9,6 +9,7 @@ class AspectRelations:
     """
     def __init__(self):
         self.aspect_relations : dict[str, set[str]] = {}
+        self.aspect_costs : dict[str, int] = {}
         # useful for displaying in UI
         self.aspect_parents : dict[str, set[str]] = {}
         self.aspect_children : dict[str, set[str]] = {}
@@ -20,6 +21,7 @@ class AspectRelations:
             data = json.load(aspects_file)
         for aspect, components in data.items():
             components = list(components or [])
+            self.aspect_costs[aspect] = sum([self.aspect_costs.get(c, 0) for c in components])
             for component in components:
                 self.aspect_relations.setdefault(component, set()).add(aspect)
                 self.aspect_relations.setdefault(aspect, set()).add(component)
@@ -39,19 +41,25 @@ class AspectRelations:
         if length == 0:
             return [start] if start == end else None
 
+        best_path = None
+        best_cost = 99999999
+
         queue = deque([(start, [start])])
         while queue:
             node, path = queue.popleft()
             path_length = len(path) - 1
-            if path_length == length:
+            if path_length >= length:
                 if node == end:
-                    return path
+                    path_cost = sum([self.aspect_costs[x] for x in path])
+                    if (path_cost < best_cost):
+                        best_cost = path_cost
+                        best_path = path
                 continue
             for neighbor in self.aspect_relations.get(node, []):
                 if neighbor in path:
                     continue
                 queue.append((neighbor, path + [neighbor]))
-        return None
+        return best_path
 
 class HexGrid:
     """
