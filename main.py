@@ -104,57 +104,27 @@ class TRSApp(mig.ImguiApp):
     
     def build_aspect_tooltip(self, aspect : str):
         if (ig.begin_tooltip()):
-            num_cols = len(self.aspect_rels.aspect_relations[aspect]) + 3
-            aspect_names1 = list(self.aspect_rels.aspect_children.get(aspect, []))
-            aspect_names2 = list(self.aspect_rels.aspect_parents.get(aspect, []))
-            aspect_textures1 = [self.aspect_textures[a] for a in aspect_names1]
-            aspect_textures2 = [self.aspect_textures[a] for a in aspect_names2]
-            if (ig.begin_table(f"aspect_img_button_{aspect}_tooltip", num_cols, ig.TableFlags.NO_SAVED_SETTINGS | ig.TableFlags.BORDERS_INNER_V)):
+            num_cols = len(self.aspect_rels.aspect_relations[aspect]) + 1
+            aspect_names = list(self.aspect_rels.aspect_children.get(aspect, [])) + [aspect] + list(self.aspect_rels.aspect_parents.get(aspect, []))
+            aspect_textures = [self.aspect_textures[a] for a in aspect_names]
+            aspect_index = aspect_names.index(aspect)
+            if (ig.begin_table(f"aspect_img_button_{aspect}_tooltip", num_cols, self.invisible_table_flags)):
                 for i in range(num_cols):
                     ig.table_setup_column(f"aspect_img_button_{aspect}_tooltip_col{i}", self.invisible_column_flags)
-                # text labels
+                # aspect text labels
                 ig.table_next_row()
-                index = 0
-                for aspect_name in aspect_names1:
-                    ig.table_set_column_index(index)
-                    index += 1
+                for i, aspect_name in enumerate(aspect_names):
+                    ig.table_set_column_index(i)
+                    if (i == aspect_index):
+                        ig.table_set_bg_color(ig.TableBgTarget.CELL_BG, (0.25, 0.35, 0.6, 1), i)
                     ig.text(aspect_name)
-
-                # skip a column before and after hovered aspect
-                index += 1
-                ig.table_set_column_index(index)
-                ig.text(aspect)
-                index += 2
-
-                for aspect_name in aspect_names2:
-                    ig.table_set_column_index(index)
-                    index += 1
-                    ig.text(aspect_name)
-
-                # images
+                # aspect images
                 ig.table_next_row()
-                index = 0
-                for aspect_texture in aspect_textures1:
-                    ig.table_set_column_index(index)
-                    index += 1
+                for i, aspect_texture in enumerate(aspect_textures):
+                    ig.table_set_column_index(i)
+                    if (i == aspect_index):
+                        ig.table_set_bg_color(ig.TableBgTarget.CELL_BG, (0.25, 0.35, 0.6, 1), i)
                     ig.image(aspect_texture, self.button_size)
-
-                # show separators bofre and after hovered aspect
-                ig.table_set_column_index(index)
-                index += 1
-                ig.text(">")
-                ig.table_set_column_index(index)
-                index += 1
-                ig.image(self.aspect_textures[aspect], self.button_size)
-                ig.table_set_column_index(index)
-                index += 1
-                ig.text(">")
-
-                for aspect_texture in aspect_textures2:
-                    ig.table_set_column_index(index)
-                    index += 1
-                    ig.image(aspect_texture, self.button_size)
-                
                 ig.end_table()
             ig.end_tooltip()
 
