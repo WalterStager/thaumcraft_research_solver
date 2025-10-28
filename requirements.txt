@@ -1,0 +1,5 @@
+glfw==2.10.0
+numpy==2.2.6
+pillow==12.0.0
+PyOpenGL==3.1.10
+slimgui==0.5.2
