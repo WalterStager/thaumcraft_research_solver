@@ -1,7 +1,6 @@
 import json
-from heapq import heappop, heappush
 from collections import deque
-from collections.abc import Iterable
+from heapq import heappush, heappop
 
 class AspectRelations:
     """
@@ -114,7 +113,7 @@ class HexGrid:
     def all_nodes(self):
         return list([x for x in self.adj.keys() if not x in self.disabled_nodes])
     
-    def find_path_minimum_length(self, start: int, ends: list[int], minimum_length: int) -> list[int] | None:
+    def find_path_minimum_length(self, start: int, ends: list[int], minimum_length: int, additional_excludes: list[int] = []) -> list[int] | None:
         if (start in ends):
             return None
         if start not in self.adj or start in self.disabled_nodes:
@@ -122,25 +121,31 @@ class HexGrid:
         targets = {end for end in ends if end in self.adj and end not in self.disabled_nodes}
         if not targets:
             return None
+        
+        additional_excludes.remove(start)
+        for x in ends:
+            additional_excludes.remove(x)
 
-        queue = deque([(start, [start])])
+        queue = []
+        heappush(queue, (1, start, [start]))
         min_len = max(0, minimum_length)
 
         best_path = None
         best_distance = 9999999
 
         while queue:
-            node, path = queue.popleft()
-            distance = len(path) - 1
+            distance, node, path = heappop(queue)
             if node in targets and distance >= min_len and distance < best_distance:
                 best_path = path
                 best_distance = distance
             if (distance >= best_distance):
                 continue
+            if (any([end in path for end in targets])):
+                continue
             for neighbor in self.neighbors(node):
-                if neighbor in path:
+                if (neighbor in path) or (neighbor in additional_excludes):
                     continue
-                queue.append((neighbor, path + [neighbor]))
+                heappush(queue, (distance + 1, neighbor, path + [neighbor]))
         return best_path
 
     def split_contiguous_nodes(self, nodes: set[int]) -> list[set[int]]:

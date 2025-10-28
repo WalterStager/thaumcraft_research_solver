@@ -1,7 +1,6 @@
 import os
 import glfw
 import OpenGL.GL as gl
-import requests
 from slimgui import imgui
 from slimgui.integrations.glfw import GlfwRenderer
 from PIL import Image
@@ -22,16 +21,16 @@ def load_texture(filename):
         gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGBA, width, height, 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, pixels)
         return texture_id
 
-def _download_cached(url, cache_dir="thaumcraft_research_solver") -> str:
-    os.makedirs(os.path.expanduser(f"~/.cache/{cache_dir}"), exist_ok=True)
-    filename = os.path.basename(url)
-    cache_path = os.path.expanduser(f"~/.cache/{cache_dir}/{filename}")
-    if not os.path.exists(cache_path):
-        r = requests.get(url)
-        r.raise_for_status()
-        with open(cache_path, 'wb') as f:
-            f.write(r.content)
-    return cache_path
+# def _download_cached(url, cache_dir="thaumcraft_research_solver") -> str:
+#     os.makedirs(os.path.expanduser(f"~/.cache/{cache_dir}"), exist_ok=True)
+#     filename = os.path.basename(url)
+#     cache_path = os.path.expanduser(f"~/.cache/{cache_dir}/{filename}")
+#     if not os.path.exists(cache_path):
+#         r = requests.get(url)
+#         r.raise_for_status()
+#         with open(cache_path, 'wb') as f:
+#             f.write(r.content)
+#     return cache_path
 
 def load_font():
     # _download_cached('https://github.com/jnmaloney/WebGui/raw/master/data/xkcd-script.ttf')

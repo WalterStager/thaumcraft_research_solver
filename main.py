@@ -1,6 +1,5 @@
 import json
 from enum import Enum
-import numpy as np
 import myimgui as mig
 from slimgui import imgui as ig
 import glfw
@@ -141,7 +140,6 @@ class TRSApp(mig.ImguiApp):
             ig.image_button(f"aspect_img_button_{aspect}", self.aspect_textures[aspect], image_size=self.button_size)
             if (ig.is_item_hovered()):
                 self.build_aspect_tooltip(aspect)
-            # ig.set_item_tooltip(f"[{', '.join(self.aspect_rels.aspect_children.get(aspect, []))}] > {aspect} > [{', '.join(self.aspect_rels.aspect_parents.get(aspect, []))}]")
             if (ig.begin_drag_drop_source()):
                 ig.set_drag_drop_payload("aspect_dd", aspect.encode('utf-8'))
                 ig.end_drag_drop_source()
@@ -158,8 +156,9 @@ class TRSApp(mig.ImguiApp):
     def solve(self):
         #todo: fix existing aspects getting overwritten in small grids
         contiguous_sets = self.grid.split_contiguous_nodes(self.placed_aspects.keys())
+        starting_sets = len(contiguous_sets)
         iters = 0
-        while (len(contiguous_sets) > 1 and iters < 100):
+        while (len(contiguous_sets) > 1 and iters < starting_sets*2):
             setA = contiguous_sets[0]
             best_solution = None
             best_cost = 999999999
@@ -168,8 +167,9 @@ class TRSApp(mig.ImguiApp):
                 others = [x for sl in contiguous_sets[1:] for x in sl]
                 path_length = 0
                 while (path_length < self.grid_size * 2):
-                    grid_path = self.grid.find_path_minimum_length(node, others, path_length)
+                    grid_path = self.grid.find_path_minimum_length(node, others, path_length, list(self.placed_aspects.keys()))
                     if (grid_path == None):
+                        path_length += 1
                         continue
                     aspect_path = self.aspect_rels.find_path_exact_length(self.placed_aspects[grid_path[0]], self.placed_aspects[grid_path[-1]], len(grid_path)-1)
                     if (aspect_path == None):
