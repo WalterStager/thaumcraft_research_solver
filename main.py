@@ -1,26 +1,12 @@
 import json
 from enum import Enum
+import random
 import myimgui as mig
 from slimgui import imgui as ig
 import glfw
 from pathlib import Path
 import atexit
 from algo import AspectRelations, HexGrid
-
-"""
-u     0,  44    -1,  0
-ur   34,  22     0, -1
-dr   34, -22     1, -1
-d     0, -44     1,  0
-dl  -34, -22     0,  1
-ul  -34,  22    -1,  1
-
-
-1, 0 = 0, -44
-0, 1 = -34, -22
-
-pos = (r*-34, q*-34 + r*-22)
-"""
 
 class SolverMode(Enum):
     FAST = 1
@@ -159,6 +145,7 @@ class TRSApp(mig.ImguiApp):
         starting_sets = len(contiguous_sets)
         iters = 0
         while (len(contiguous_sets) > 1 and iters < starting_sets*2):
+            random.shuffle(contiguous_sets)
             setA = contiguous_sets[0]
             best_solution = None
             best_cost = 999999999
@@ -185,8 +172,10 @@ class TRSApp(mig.ImguiApp):
                 if (best_solution != None and self.solver_mode == SolverMode.FAST):
                     break
             
-            self.placed_aspects.update(best_solution)
+            if (best_solution != None):
+                self.placed_aspects.update(best_solution)
             contiguous_sets = self.grid.split_contiguous_nodes(self.placed_aspects.keys())
+            random.shuffle(contiguous_sets)
             iters += 1
 
     def calculate_scaling(self):
