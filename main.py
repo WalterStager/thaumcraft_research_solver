@@ -15,9 +15,6 @@ class SolverMode(Enum):
 class TRSApp(mig.ImguiApp):
     def setup(self):
         self.global_scale_factor = 1
-        self.settings_path = Path(__file__).with_name("config.json")
-        self.load_settings()
-        atexit.register(self.save_settings)
         self.calculate_scaling()
 
         self.grid_size = 3
@@ -188,60 +185,6 @@ class TRSApp(mig.ImguiApp):
         self.horz_spacing = -1 * (((3 * button_scale_size) // 4) + margin)
         self.vert_spacing1 = -1 * (button_scale_size + margin)
         self.vert_spacing2 = -1 * ((button_scale_size + margin) // 2)
-
-    # todo: ugly af, make better
-    def load_settings(self):
-        if not hasattr(self, "settings_path") or not self.settings_path.exists():
-            return
-        try:
-            with self.settings_path.open("r", encoding="utf-8") as config_file:
-                data = json.load(config_file)
-        except (OSError, json.JSONDecodeError):
-            return
-        scale = data.get("ui_scale")
-        if isinstance(scale, (int, float)):
-            self.global_scale_factor = max(0.1, min(5, float(scale)))
-        window = self._glfw_window
-        size = data.get("window_size")
-        if size:
-            print(f"[config] load window_size={size}")
-        if window and isinstance(size, (list, tuple)) and len(size) == 2:
-            try:
-                width = max(200, int(size[0]))
-                height = max(200, int(size[1]))
-                glfw.set_window_size(window, width, height)
-            except (TypeError, ValueError):
-                pass
-        pos = data.get("window_position")
-        if window and isinstance(pos, (list, tuple)) and len(pos) == 2:
-            try:
-                glfw.set_window_pos(window, int(pos[0]), int(pos[1]))
-            except (TypeError, ValueError):
-                pass
-
-    # todo: ugly af, make better
-    def save_settings(self):
-        if not hasattr(self, "settings_path"):
-            return
-        window = self._glfw_window
-        window_size = window_pos = None
-        if window:
-            try:
-                window_size = glfw.get_window_size(window)
-                window_pos = glfw.get_window_pos(window)
-            except glfw.GLFWError:
-                window_size = window_pos = None
-        data = {"ui_scale": self.global_scale_factor}
-        if window_size:
-            print(f"[config] save window_size={window_size}")
-            data["window_size"] = list(window_size)
-        if window_pos:
-            data["window_position"] = list(window_pos)
-        try:
-            with self.settings_path.open("w", encoding="utf-8") as config_file:
-                json.dump(data, config_file, indent=2)
-        except OSError:
-            pass
 
     def mainloop(self):
         ig.set_next_window_pos((0, 0), ig.Cond.ONCE)
