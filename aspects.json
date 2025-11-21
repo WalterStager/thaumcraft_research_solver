@@ -52,6 +52,12 @@
     "electrum": [ "potentia", "machina" ],
     "magneto": [ "metallum", "iter" ],
     "radio": [ "lux", "potentia" ],
+    "aequalitas": [ "cognitio", "ordo" ],
+    "vesania": [ "cognitio", "vitium" ],
+    "primordium": [ "vacuos", "motus" ],
+    "astrum": [ "lux", "primordium" ],
+    "gloria": [ "humanus", "iter" ],
+    "terminus": [ "lucrum", "alienis" ],
     "luxuria": [ "corpus", "fames" ],
     "infernus": [ "ignis", "praecantatio" ],
     "superbia": [ "volatus", "vacuos" ],
@@ -59,5 +65,7 @@
     "invidia": [ "sensus", "fames" ],
     "desidia": [ "vinculum", "spiritus" ],
     "ira": [ "telum", "ignis" ],
-    "tempus": [ "vacuos", "ordo" ]
+    "tempus": [ "vacuos", "ordo" ],
+    "caelum": [ "vitreus", "metallum" ],
+    "tabernus": [ "tutamen", "iter" ]
 }
